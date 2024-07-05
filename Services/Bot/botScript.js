@@ -1,6 +1,8 @@
 const axios = require('axios')
 const token = process.env.TOKEN
 const myToken = process.env.MY_TOKEN
+const Contact = require("../../dbModels/contacts");
+const UserChatHistory = require("../../dbModels/userChatHistory");
 
 exports.check = (req, res) => {
     console.log("webhook called");
@@ -44,41 +46,37 @@ exports.check = (req, res) => {
 //     }
 // }
 
-function sendMSG(msg, phone_no_id, token, from) {
+async function sendMSG(msg, phone_no_id, token, from) {
+    console.log("sendMSG called");
     try {
-        axios({
-            method: "POST",
-            url: "https://graph.facebook.com/v20.0/" + phone_no_id + "/messages?access_token=" + token,
-            data: {
-                messaging_product: "whatsapp",
-                to: from,
-                text: {
-                    body: msg
-                }
-            },
-            headers: {
-                "Content-Type": "application/json"
+        let url = "https://graph.facebook.com/v20.0/" + phone_no_id + "/messages?access_token=" + token
+        let data = {
+            messaging_product: "whatsapp",
+            to: from,
+            text: {
+                body: msg
             }
-        })
+        }
+        let headers = {
+            "Content-Type": "application/json"
+        }
+        const response = await axios.post(url, data, headers);
+        console.log("response", response.data.messages[0].id);
     } catch (error) {
         console.log(error);
     }
 }
 
-exports.handle = (req, res) => {
+exports.handle = async (req, res) => {
     var data = req.body
     try {
         if (data.object) {
-            if (data.entry[0].changes[0].value.messages[0]) {
-                console.log("contact", data.entry[0].changes[0].value.messages);
+            if (data.entry[0].changes[0].value.messages) {
                 handleMessage(data);
+                saveContact(data.entry[0].changes[0].value.contacts[0]);
                 res.sendStatus(200);
-            } else if (data.entry[0].changes[0].value.contacts) {
-                console.log("contact", data.entry[0].changes[0].value.contacts);
-                res.sendStatus(200);
-            }
-            else if (data.entry[0].changes[0].value.statuses) {
-                console.log("status", data.entry[0].changes[0].value.statuses);
+            } else if (data.entry[0].changes[0].value.statuses) {
+                const result = await UserChatHistory.findOneAndUpdate({ _id: req.body._id }, data);
                 res.sendStatus(200);
             } else {
                 res.sendStatus(404);
@@ -94,4 +92,20 @@ function handleMessage(data) {
     var from = data.entry[0].changes[0].value.messages[0].from
     var msg_body = data.entry[0].changes[0].value.messages[0].text.body
     sendMSG(msg_body, phone_no_id, token, from);
+}
+
+async function saveContact(data) {
+    try {
+        const existingContact = await Contact.findOne({
+            wa_id: data.wa_id
+        });
+        if (existingContact === null) {
+            await Contact.create({
+                name: data.profile.name,
+                wa_id: data.wa_id
+            });
+        }
+    } catch (error) {
+        console.error("Error saving contact:", error);
+    }
 }
