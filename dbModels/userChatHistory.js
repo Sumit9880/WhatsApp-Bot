@@ -39,6 +39,9 @@ const userChatHistorySchema = new Schema(
             ref: 'Script',
             required: false
         },
+        wamId: {
+            type: String
+        }
     },
     {
         timestamps: true
