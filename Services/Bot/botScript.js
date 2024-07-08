@@ -60,7 +60,6 @@ async function handleMessage(data) {
         let from = data.entry[0].changes[0].value.messages[0].from
         let msg_body = data.entry[0].changes[0].value.messages[0].text.body
         let isGreet = isGreetingMessage(msg_body)
-
         let msg = await UserChatHistory.aggregate([
             {
                 $lookup: {
@@ -77,34 +76,40 @@ async function handleMessage(data) {
                 }
             }
         ]).sort({ _id: -1 }).limit(1);
-
+        let valid = false
         let scriptId = null
+
         if (msg.length <= 0 || isGreet) {
             // new script
+            valid = true
             let start = await Script.findOne().sort({ _id: 1 }).limit(1)
             scriptId = start._id
         } else {
             // old script
             scriptId = msg[0].script[0].redirectId
+            valid = isValid(msg[0]?.script[0], msg_body)
         }
 
-        if (scriptId == null) {
-            sendMSG("Thank you", phone_no_id, token, from, scriptId);
+        if (!valid) {
+            sendMSG("Invalide Response", phone_no_id, token, from, new ObjectId('000000000000000000000000'));
         } else {
-            async function processScript() {
-                let script = await Script.findOne({ _id: scriptId })
-                let msg_body = script.msgContent
-                sendMSG(msg_body, phone_no_id, token, from, scriptId);
+            if (scriptId == null) {
+                sendMSG("Thank you", phone_no_id, token, from, new ObjectId('000000000000000000000000'));
+            } else {
+                async function processScript() {
+                    let script = await Script.findOne({ _id: scriptId })
+                    let msg_body = script.msgContent
+                    sendMSG(msg_body, phone_no_id, token, from, scriptId);
 
-                scriptId = script.redirectId;
-                let waitTime = script.waitTime;
-                if (waitTime !== null && waitTime > 0) {
-                    setTimeout(processScript, waitTime);
+                    scriptId = script.redirectId;
+                    let waitTime = script.waitTime;
+                    if (waitTime !== null && waitTime > 0) {
+                        setTimeout(processScript, waitTime);
+                    }
                 }
+                processScript();
             }
-            processScript();
         }
-
     } catch (error) {
         console.error("Error handling message:", error);
     }
@@ -207,3 +212,36 @@ async function sendMSG(msg, phone_no_id, token, from, scriptId) {
         console.error("Error sending message:", error);
     }
 }
+
+
+function isValid(data, msg_body) {
+    switch (data?.validationType) {
+        case 'date':
+            const dateRegex = /(^(((0[1-9]|1[0-9]|2[0-8])[-](0[1-9]|1[012]))|((29|30|31)[-](0[13578]|1[02]))|((29|30)[-](0[4,6,9]|11)))[-](19|[2-9][0-9])\d\d$)|(^29[-]02[-](19|[2-9][0-9])(00|04|08|12|16|20|24|28|32|36|40|44|48|52|56|60|64|68|72|76|80|84|88|92|96)$)/;
+            return dateRegex.test(msg_body);
+        case 'number':
+            const numberRegex = /^[0-9]+$/;
+            return numberRegex.test(msg_body);
+        case 'pincode':
+            const pincodeRegex = /^\d{6}(-\d{4})?$/;
+            return pincodeRegex.test(msg_body);
+        case 'PAN':
+            const panRegex = /[A-Z]{5}[0-9]{4}[A-Z]{1}/;
+            return panRegex.test(msg_body);
+        case 'GST':
+            const gstRegex = /^([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Za-z]{1}Z[0-9A-Z]{1})$/;
+            return gstRegex.test(msg_body);
+        case 'name':
+            const nameRegex = /^[a-zA-Z]+(([',. -][a-zA-Z ])?[a-zA-Z]*)*$/;
+            return nameRegex.test(msg_body);
+        case 'email':
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(msg_body);
+        case 'mobile':
+            const mobileRegex = /^(0|91)?[6-9][0-9]{9}$/;
+            return mobileRegex.test(msg_body);
+        default:
+            return true;
+    }
+}
+
